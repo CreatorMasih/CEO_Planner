@@ -74,9 +74,7 @@ function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center gap-2 px-2 py-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Shield className="h-4 w-4" aria-hidden="true" />
-          </div>
+          <img src="/apple-touch-icon.png" alt="Logo" className="h-9 w-9 object-contain" />
           <div className="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
             <span className="text-sm font-semibold">District Admin</span>
             <span className="text-xs text-muted-foreground">Governance Portal</span>
