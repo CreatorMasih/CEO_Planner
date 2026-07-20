@@ -1,8 +1,13 @@
-import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { getCorsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { getAuthenticatedUser, requiredEnv, serviceClient } from "../_shared/google-calendar.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      status: 200,
+      headers: getCorsHeaders(req),
+    });
+  }
 
   try {
     const user = await getAuthenticatedUser(req);
@@ -30,9 +35,9 @@ Deno.serve(async (req) => {
 
     return jsonResponse({
       authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
-    });
+    }, 200, req);
   } catch (error) {
     const status = error instanceof Error && "status" in error ? Number(error.status) : 500;
-    return jsonResponse({ error: error instanceof Error ? error.message : "Unable to start Google OAuth" }, status);
+    return jsonResponse({ error: error instanceof Error ? error.message : "Unable to start Google OAuth" }, status, req);
   }
 });

@@ -1,4 +1,4 @@
-import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { getCorsHeaders, jsonResponse } from "../_shared/cors.ts";
 import {
   assertTaskAccess,
   getAuthenticatedUser,
@@ -13,7 +13,12 @@ import {
 } from "../_shared/google-calendar.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      status: 200,
+      headers: getCorsHeaders(req),
+    });
+  }
 
   let requestedTaskId: string | null = null;
   let actorId: string | null = null;
@@ -22,7 +27,7 @@ Deno.serve(async (req) => {
     actorId = user.id;
     const { taskId, retry } = await req.json();
     requestedTaskId = typeof taskId === "string" ? taskId : null;
-    if (!taskId) return jsonResponse({ error: "taskId is required" }, 400);
+    if (!taskId) return jsonResponse({ error: "taskId is required" }, 400, req);
 
     const task = await loadTask(taskId);
     await assertTaskAccess(user.id, task);
@@ -55,7 +60,7 @@ Deno.serve(async (req) => {
       skipped_owners: skippedOwners,
     });
 
-    return jsonResponse({ ok: true, connectedOwners, skippedOwners });
+    return jsonResponse({ ok: true, connectedOwners, skippedOwners }, 200, req);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Google Calendar sync failed";
     if (requestedTaskId) {
@@ -63,6 +68,6 @@ Deno.serve(async (req) => {
       if (task) await saveCalendarFailure(task, message);
       if (task && actorId) await logAudit(task.id, actorId, "calendar_sync_failed", { error: message });
     }
-    return jsonResponse({ error: message }, error instanceof Error && "status" in error ? Number(error.status) : 500);
+    return jsonResponse({ error: message }, error instanceof Error && "status" in error ? Number(error.status) : 500, req);
   }
 });

@@ -1,4 +1,4 @@
-import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { getCorsHeaders, jsonResponse } from "../_shared/cors.ts";
 import {
   assertTaskAccess,
   deleteCalendarEvent,
@@ -10,12 +10,17 @@ import {
 } from "../_shared/google-calendar.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      status: 200,
+      headers: getCorsHeaders(req),
+    });
+  }
 
   try {
     const user = await getAuthenticatedUser(req);
     const { taskId } = await req.json();
-    if (!taskId) return jsonResponse({ error: "taskId is required" }, 400);
+    if (!taskId) return jsonResponse({ error: "taskId is required" }, 400, req);
 
     const task = await loadTask(taskId);
     await assertTaskAccess(user.id, task);
@@ -55,11 +60,12 @@ Deno.serve(async (req) => {
       })
       .eq("id", task.id);
 
-    return jsonResponse({ ok: true });
+    return jsonResponse({ ok: true }, 200, req);
   } catch (error) {
     return jsonResponse(
       { error: error instanceof Error ? error.message : "Google Calendar delete failed" },
       error instanceof Error && "status" in error ? Number(error.status) : 500,
+      req,
     );
   }
 });
