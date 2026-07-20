@@ -2,6 +2,9 @@
 // Server-side Supabase client with service role key - bypasses RLS.
 // Use this for admin operations in server functions and server routes only.
 // For user-authenticated queries (with RLS), use the auth middleware instead.
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = class {} as any;
+}
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { getSupabaseServerEnv } from '@/lib/server-env';

@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  ClipboardList,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,7 +40,8 @@ import { useDepartments, useProfiles, useTasks, type Task } from "@/hooks/useDat
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { syncTaskCalendar } from "@/lib/googleCalendar";
-import { dateKeyForTask, isPlannerMeetingTask, PLANNER_MEETING_TYPE_LINE } from "@/lib/taskClassification";
+import { dateKeyForTask, isPlannerMeetingTask, isPlannerTask, PLANNER_MEETING_TYPE_LINE } from "@/lib/taskClassification";
+import { TaskDialog } from "@/components/task-dialog";
 
 export const Route = createFileRoute("/_authenticated/planner")({
   component: PlannerPage,
@@ -91,6 +93,8 @@ function PlannerPage() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [defaultDate, setDefaultDate] = useState<string | null>(null);
   const [defaultTime, setDefaultTime] = useState("10:00 AM");
   const [showSettings, setShowSettings] = useState(false);
@@ -101,7 +105,7 @@ function PlannerPage() {
   const slots = useMemo(() => buildPlannerSlots(plannerSettings), [plannerSettings]);
   const icsHttpsUrl = useMemo(() => buildPlannerIcsUrl(plannerSettings.token, "https"), [plannerSettings.token]);
   const icsWebcalUrl = useMemo(() => buildPlannerIcsUrl(plannerSettings.token, "webcal"), [plannerSettings.token]);
-  const meetings = useMemo(() => tasks.filter(isPlannerMeetingTask), [tasks]);
+  const plannerTasks = useMemo(() => tasks.filter(isPlannerTask), [tasks]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -146,12 +150,12 @@ function PlannerPage() {
   const tasksByDay = useMemo(() => {
     const map = new Map<string, Task[]>();
     for (const day of days) map.set(format(day, "yyyy-MM-dd"), []);
-    for (const task of meetings) {
+    for (const task of plannerTasks) {
       const anchor = dateKeyForTask(task);
       if (anchor && map.has(anchor)) map.get(anchor)!.push(task);
     }
     return map;
-  }, [meetings, days]);
+  }, [plannerTasks, days]);
 
   const openNew = (dateKey: string, time = "10:00 AM") => {
     setEditing(null);
@@ -216,7 +220,7 @@ function PlannerPage() {
   };
 
   const exportIcs = () => {
-    const ics = buildIcsContent(meetings);
+    const ics = buildIcsContent(plannerTasks);
     const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -229,7 +233,7 @@ function PlannerPage() {
 
   const copyDayMessage = async () => {
     const todayKey = format(new Date(), "yyyy-MM-dd");
-    const todaysTasks = meetings.filter((task) => dateKeyForTask(task) === todayKey);
+    const todaysTasks = plannerTasks.filter((task) => dateKeyForTask(task) === todayKey);
     const message = [
       `Governance Planner - ${format(new Date(), "dd MMM yyyy")}`,
       "",
@@ -322,8 +326,15 @@ function PlannerPage() {
               <div key={key} className="border-r border-border/70 last:border-r-0">
                 <div className="space-y-2 p-2">
                   {slots.map((slot, slotIndex) => {
-                    const task = dayTasks[slotIndex % Math.max(dayTasks.length, 1)];
-                    const showTask = dayTasks.length > 0 && slotIndex === 5;
+                    const slotStart = slot.range.split(" - ")[0]; // e.g. "10:00"
+                    const matchedTasks = dayTasks.filter((t) => {
+                      if (!t.due_time) {
+                        return slotIndex === 0;
+                      }
+                      const timeStr = t.due_time.slice(0, 5);
+                      return timeStr === slotStart;
+                    });
+                    const showTask = matchedTasks.length > 0;
                     return (
                       <button
                         key={`${key}-${slot.range}`}
@@ -331,44 +342,63 @@ function PlannerPage() {
                         className={cn(
                           "w-full rounded-lg border bg-background/80 p-2 text-left shadow-card transition hover:border-primary/40",
                           slot.tall ? "min-h-[72px]" : "min-h-[46px]",
-                          showTask && "border-primary/30 bg-primary/15",
                         )}
                         onClick={() => {
-                          if (showTask && task) {
-                            setEditing(task);
-                            setDefaultDate(key);
-                            setDefaultTime(slot.range.split(" - ")[0]);
-                            setDialogOpen(true);
-                          } else {
-                            openNew(key, slot.range.split(" - ")[0]);
-                          }
+                          openNew(key, slot.range.split(" - ")[0]);
                         }}
                       >
                         <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-muted-foreground">
                           <span>{slot.range}</span>
                           {!showTask && <span className="text-muted-foreground/45">Draft Slot</span>}
                         </div>
-                        {showTask && task ? (
-                          <div className="mt-2 rounded-md bg-primary/20 p-2 text-primary">
-                            <div className="flex items-start gap-1.5">
-                              <CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                              <div className="min-w-0">
-                                <p className="truncate text-xs font-semibold">{task.title}</p>
-                                <p className="mt-1 text-[11px] text-primary/80">
-                                  {task.status === "blocked" ? "Meeting - Cancelled" : "Meeting - Confirmed"}
-                                </p>
-                                <p className="text-[11px] text-primary/80">
-                                  Time: {slot.range.split(" - ")[0]}
-                                </p>
-                                <p className="truncate text-[11px] text-primary/80">
-                                  {task.department || "Governance Department"}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              <Badge className="h-5 bg-primary text-primary-foreground hover:bg-primary">WhatsApp</Badge>
-                              <Badge variant="destructive" className="h-5">!</Badge>
-                            </div>
+                        {showTask ? (
+                          <div className="space-y-2">
+                            {matchedTasks.map((t) => {
+                              const isMeeting = isPlannerMeetingTask(t);
+                              return (
+                                <div
+                                  key={t.id}
+                                  className={cn(
+                                    "mt-2 rounded-md p-2 text-left shadow-sm transition",
+                                    isMeeting 
+                                      ? "bg-success/15 border border-success/20 text-success hover:bg-success/25" 
+                                      : "bg-primary/15 border border-primary/20 text-primary hover:bg-primary/25"
+                                  )}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isMeeting) {
+                                      setEditing(t);
+                                      setDefaultDate(key);
+                                      setDefaultTime(slot.range.split(" - ")[0]);
+                                      setDialogOpen(true);
+                                    } else {
+                                      setEditingTask(t);
+                                      setDefaultDate(key);
+                                      setTaskDialogOpen(true);
+                                    }
+                                  }}
+                                >
+                                  <div className="flex items-start gap-1.5">
+                                    {isMeeting ? (
+                                      <CalendarDays className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                    ) : (
+                                      <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="truncate text-xs font-semibold">{t.title}</p>
+                                      <p className="mt-1 text-[11px] opacity-80">
+                                        {isMeeting
+                                          ? t.status === "blocked" ? "Meeting - Cancelled" : "Meeting - Confirmed"
+                                          : t.status === "done" ? "Task - Completed" : "Task - Pending"}
+                                      </p>
+                                      <p className="truncate text-[11px] opacity-80">
+                                        {t.department || "Governance Department"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
                           <p className="mt-1 text-[11px] font-medium text-foreground">{slot.label}</p>
@@ -390,6 +420,16 @@ function PlannerPage() {
         defaultDate={defaultDate}
         defaultTime={defaultTime}
         departments={departments.map((department) => department.name)}
+        onSaved={refreshTasks}
+      />
+
+      <TaskDialog
+        open={taskDialogOpen}
+        onOpenChange={setTaskDialogOpen}
+        currentUserId={user?.id ?? ""}
+        employees={profiles}
+        task={editingTask}
+        defaultDate={defaultDate}
         onSaved={refreshTasks}
       />
     </div>

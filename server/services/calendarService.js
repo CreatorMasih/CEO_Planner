@@ -258,22 +258,21 @@ export async function exportPlannerIcs(userId) {
 }
 
 export async function exportPlannerIcsByToken(token) {
-  const { data: tokenRow, error } = await supabaseAdmin
-    .from("calendar_subscription_tokens")
+  const { data: settings, error } = await supabaseAdmin
+    .from("planner_settings")
     .select("user_id")
-    .eq("token_hash", sha256(token))
-    .is("revoked_at", null)
+    .eq("subscription_token", token)
     .maybeSingle();
   if (error) throw error;
-  if (!tokenRow) throw new ApiError(404, "Calendar subscription token not found");
-  return exportPlannerIcs(tokenRow.user_id);
+  if (!settings) throw new ApiError(404, "Calendar subscription token not found");
+  return exportPlannerIcs(settings.user_id);
 }
 
 async function listCalendarSources(userId) {
   const { data, error } = await supabaseAdmin
     .from("tasks")
     .select(taskSelect)
-    .or(`created_by.eq.${userId},assigned_to.eq.${userId},backend_assigned_to.eq.${userId}`)
+    .or(`created_by.eq.${userId},assigned_to.eq.${userId},assignee_id.eq.${userId},backend_assigned_to.eq.${userId}`)
     .order("due_date", { ascending: true });
   if (error) throw error;
   return data ?? [];
@@ -379,24 +378,26 @@ function buildIcs(tasks) {
     "PRODID:-//Governance Review Dashboard//Calendar//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    ...tasks.flatMap((task) => {
-      const date = task.due_date ?? task.scheduled_date;
-      if (!date) return [];
-      const time = task.due_time ?? "10:00";
-      const start = new Date(`${date}T${time}:00+05:30`);
-      const end = new Date(start.getTime() + 30 * 60 * 1000);
-      return [
-        "BEGIN:VEVENT",
-        `UID:${task.id}@governance-review-dashboard`,
-        `DTSTAMP:${icsDate(new Date())}`,
-        `DTSTART:${icsDate(start)}`,
-        `DTEND:${icsDate(end)}`,
-        `SUMMARY:${escapeIcs(task.title)}`,
-        `DESCRIPTION:${escapeIcs(task.description ?? "")}`,
-        task.department ? `LOCATION:${escapeIcs(task.department)}` : "",
-        "END:VEVENT",
-      ].filter(Boolean);
-    }),
+    ...tasks
+      .filter((task) => task.description?.includes("Type: Meeting"))
+      .flatMap((task) => {
+        const date = task.due_date ?? task.scheduled_date;
+        if (!date) return [];
+        const time = task.due_time ?? "10:00";
+        const start = new Date(`${date}T${time}:00+05:30`);
+        const end = new Date(start.getTime() + 30 * 60 * 1000);
+        return [
+          "BEGIN:VEVENT",
+          `UID:${task.id}@governance-review-dashboard`,
+          `DTSTAMP:${icsDate(new Date())}`,
+          `DTSTART:${icsDate(start)}`,
+          `DTEND:${icsDate(end)}`,
+          `SUMMARY:${escapeIcs(task.title)}`,
+          `DESCRIPTION:${escapeIcs(task.description ?? "")}`,
+          task.department ? `LOCATION:${escapeIcs(task.department)}` : "",
+          "END:VEVENT",
+        ].filter(Boolean);
+      }),
     "END:VCALENDAR",
   ];
   return `${lines.join("\r\n")}\r\n`;

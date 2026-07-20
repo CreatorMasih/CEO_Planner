@@ -3,7 +3,7 @@ import type { Task } from "@/hooks/useData";
 export const PLANNER_MEETING_TYPE_LINE = "Type: Meeting";
 
 export function isPlannerMeetingTask(task: Task) {
-  return isPlannerTask(task);
+  return task.description?.includes(PLANNER_MEETING_TYPE_LINE) ?? false;
 }
 
 export function isPlannerTask(task: Task) {

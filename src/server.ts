@@ -92,10 +92,24 @@ async function handlePlannerIcsExport(url: URL) {
     const plannerTasks = await fetchPlannerTasksForCalendar(settings.user_id);
 
     if (!plannerTasks.length) {
-      const diagnostic = await explainEmptyPlannerCalendar(settings.user_id);
-      return new Response(diagnostic, {
-        status: 404,
-        headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+      const emptyIcs = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//District Governance Portal//Planner//EN",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:District Governance Planner",
+        "X-WR-TIMEZONE:Asia/Kolkata",
+        "END:VCALENDAR"
+      ].join("\r\n") + "\r\n";
+
+      return new Response(emptyIcs, {
+        status: 200,
+        headers: {
+          "content-type": "text/calendar; charset=utf-8",
+          "content-disposition": 'attachment; filename="planner.ics"',
+          "cache-control": "no-store",
+        },
       });
     }
 
@@ -109,12 +123,22 @@ async function handlePlannerIcsExport(url: URL) {
         "cache-control": "no-store",
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Planner ICS Export] failed", error);
-    return new Response("Planner calendar export failed", {
-      status: 500,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+    if (error instanceof Error) {
+      console.error("Error Stack:", error.stack);
+      console.error("Error Message:", error.message);
+      console.error("Error Name:", error.name);
+    }
+    return new Response(
+      `Planner calendar export failed: ${error instanceof Error ? error.message : String(error)}\n` +
+      `Name: ${error instanceof Error ? error.name : "UnknownError"}\n` +
+      `Stack: ${error instanceof Error ? error.stack : "No stack trace available"}`,
+      {
+        status: 500,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      }
+    );
   }
 }
 
@@ -146,7 +170,7 @@ async function fetchPlannerTasksForCalendar(userId: string): Promise<PlannerIcsT
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const canViewAllPlannerTasks = await userCanViewAllTasks(userId);
   const rows = await fetchPlannerTaskRows(userId, canViewAllPlannerTasks);
-  return rows.filter((task) => getPlannerTaskDate(task)).sort(comparePlannerTasks);
+  return rows.filter((task) => getPlannerTaskDate(task) && task.description?.includes("Type: Meeting")).sort(comparePlannerTasks);
 }
 
 async function fetchPlannerTaskRows(
